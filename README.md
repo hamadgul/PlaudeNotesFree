@@ -4,16 +4,17 @@ Automatically transcribes Plaud voice recordings and generates structured meetin
 
 ## What it does
 
-1. Watches your iCloud `PlaudInput` folder for new recordings
-2. Transcribes audio locally using OpenAI Whisper (runs on your machine, no cost)
-3. Summarizes with Claude and structures the output into:
+1. On first run, prompts you to select your input and output folders using a native macOS folder picker — remembered for all future runs
+2. Watches your chosen input folder for new recordings
+3. Transcribes audio locally using OpenAI Whisper (runs on your machine, no cost)
+4. Summarizes with Claude and structures the output into:
    - Attendees
    - Summary (TL;DR)
    - Key Decisions
    - Action Items (table with owner + deadline)
    - Discussion Topics
    - Open Questions
-4. Saves a formatted `.docx` — prompts you to choose the save location via a native macOS folder picker
+5. Saves a formatted `.docx` — prompts you to choose the save location via a native macOS folder picker
 
 ## Requirements
 
@@ -47,13 +48,18 @@ To make this permanent:
 echo 'export ANTHROPIC_API_KEY="sk-ant-your-key-here"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-**4. Set up iCloud folders**
+**4. Run the script — folder setup happens automatically**
 
-The script watches:
-- **Input:** `~/Library/Mobile Documents/com~apple~CloudDocs/PlaudInput`
-- **Default output:** `~/Library/Mobile Documents/com~apple~CloudDocs/PlaudOutput`
+On first run, two native macOS folder pickers will appear:
+1. **Input folder** — where your Plaud recordings are dropped (e.g. an iCloud or local folder)
+2. **Output folder** — default location for saved notes
 
-On your Plaud device, set the export destination to the `PlaudInput` iCloud folder. The script creates both folders automatically on first run.
+Your selections are remembered in `~/.config/plaud_notes/config.json` and used for all future runs.
+
+To change folders at any time:
+```bash
+python3 plaud_summarizer.py --setup
+```
 
 ## Usage
 
@@ -67,9 +73,14 @@ python3 plaud_summarizer.py
 python3 plaud_summarizer.py recording.mp3
 ```
 
-**Custom Whisper model or output directory:**
+**Custom Whisper model or one-off output directory:**
 ```bash
 python3 plaud_summarizer.py --model medium --output ~/Documents/MeetingNotes recording.mp3
+```
+
+**Change your saved input/output folders:**
+```bash
+python3 plaud_summarizer.py --setup
 ```
 
 ## Running automatically with macOS Automator

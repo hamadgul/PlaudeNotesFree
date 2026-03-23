@@ -88,7 +88,13 @@ def load_whisper_model(model_name: str):
         device = "cpu"
 
     print(f"    Loading Whisper '{model_name}' model on {device}...")
-    return whisper.load_model(model_name, device=device)
+    try:
+        return whisper.load_model(model_name, device=device)
+    except (NotImplementedError, RuntimeError):
+        if device != "cpu":
+            print(f"    {device.upper()} not fully supported, falling back to CPU...")
+            return whisper.load_model(model_name, device="cpu")
+        raise
 
 
 def transcribe_audio(audio_path: Path, model) -> str:
@@ -273,6 +279,63 @@ def save_docx(audio_path: Path, summary: dict | None, output_dir: Path):
     return out_path
 
 
+CONFIG_PATH = Path.home() / ".config" / "plaud_notes" / "config.json"
+
+
+def load_config() -> dict:
+    """Load persisted folder config, or return empty dict if not set."""
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_config(config: dict):
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(config, indent=2))
+
+
+def pick_folder(prompt: str) -> Path | None:
+    """Show native macOS folder picker. Returns chosen Path or None on cancel."""
+    import platform
+    if platform.system() != "Darwin":
+        return None
+    script = f'POSIX path of (choose folder with prompt "{prompt}")'
+    try:
+        result = subprocess.run(["osascript", "-e", script],
+                                capture_output=True, text=True, timeout=60)
+        chosen = result.stdout.strip()
+        if chosen:
+            return Path(chosen)
+    except Exception:
+        pass
+    return None
+
+
+def setup_folders(config: dict) -> dict:
+    """Run folder pickers for input and output, save to config."""
+    print("  Setting up folders...")
+    input_dir = pick_folder("Select your Plaud INPUT folder (where recordings are dropped):")
+    if not input_dir:
+        print("  No input folder selected, keeping default.")
+        input_dir = Path(config.get("input_dir", str(INPUT_DIR)))
+
+    output_dir = pick_folder("Select your OUTPUT folder (where notes are saved by default):")
+    if not output_dir:
+        print("  No output folder selected, keeping default.")
+        output_dir = Path(config.get("output_dir", str(OUTPUT_DIR)))
+
+    config["input_dir"] = str(input_dir)
+    config["output_dir"] = str(output_dir)
+    save_config(config)
+    print(f"  Input:  {input_dir}")
+    print(f"  Output: {output_dir}")
+    print(f"  Saved to {CONFIG_PATH}\n")
+    return config
+
+
 def ask_save_location(filename: str, default_dir: Path) -> Path:
     """Show native macOS folder picker. Returns chosen folder or default_dir on cancel."""
     import platform
@@ -311,16 +374,16 @@ def process_file(audio_path: Path, model, output_dir: Path):
     return out_path
 
 
-def watch_mode(whisper_model_name: str, output_dir: Path):
+def watch_mode(whisper_model_name: str, input_dir: Path, output_dir: Path):
     """Poll input folder every 5 seconds — reliable for iCloud Drive."""
     seen = set()
 
-    if INPUT_DIR.exists():
-        for f in INPUT_DIR.iterdir():
+    if input_dir.exists():
+        for f in input_dir.iterdir():
             if f.suffix.lower() in (".mp3", ".wav", ".m4a", ".ogg"):
                 seen.add(f.name)
 
-    print(f"  Watching: {INPUT_DIR}")
+    print(f"  Watching: {input_dir}")
     print(f"    Output:   {output_dir}")
     print(f"    Polling every 5 seconds.")
     print(f"    {len(seen)} existing file(s) skipped on startup.")
@@ -331,12 +394,12 @@ def watch_mode(whisper_model_name: str, output_dir: Path):
 
     while True:
         try:
-            if not INPUT_DIR.exists():
-                print(f"  Input folder missing: {INPUT_DIR}")
+            if not input_dir.exists():
+                print(f"  Input folder missing: {input_dir}")
                 time.sleep(10)
                 continue
 
-            for f in sorted(INPUT_DIR.iterdir()):
+            for f in sorted(input_dir.iterdir()):
                 if f.suffix.lower() not in (".mp3", ".wav", ".m4a", ".ogg"):
                     continue
                 if f.name in seen:
@@ -372,22 +435,30 @@ def main():
     except AttributeError:
         pass  # stdout/stderr already wrapped or no buffer (e.g. Automator)
 
-    INPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     parser = argparse.ArgumentParser(description="Plaud → Whisper → Summary → DOCX")
     parser.add_argument("file", nargs="?", help="Audio file to process (optional; omit for watch mode)")
     parser.add_argument("--model", default=WHISPER_MODEL, help="Whisper model size (tiny/base/small/medium/large)")
-    parser.add_argument("--output", default=None, help="Output directory (default: iCloud PlaudOutput)")
+    parser.add_argument("--output", default=None, help="Override output directory for this run")
+    parser.add_argument("--setup", action="store_true", help="Re-run folder setup")
     args = parser.parse_args()
 
-    output_dir = Path(args.output) if args.output else OUTPUT_DIR
+    config = load_config()
+
+    # First run or --setup flag: prompt for folders
+    if args.setup or "input_dir" not in config:
+        config = setup_folders(config)
+
+    input_dir = Path(config["input_dir"])
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    output_dir = Path(args.output) if args.output else Path(config["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.file:
         model = load_whisper_model(args.model)
         process_file(Path(args.file), model, output_dir)
     else:
-        watch_mode(args.model, output_dir)
+        watch_mode(args.model, input_dir, output_dir)
 
 
 if __name__ == "__main__":
