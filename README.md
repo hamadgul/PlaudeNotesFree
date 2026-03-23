@@ -21,6 +21,11 @@ Automatically transcribes Plaud voice recordings and generates structured meetin
 - Python 3.10+
 - An [Anthropic API key](https://console.anthropic.com/)
 - A Plaud device syncing recordings to iCloud
+- [Homebrew](https://brew.sh/) (for installing ffmpeg)
+- `ffmpeg` — required by Whisper to decode audio:
+  ```bash
+  brew install ffmpeg
+  ```
 
 ## Setup
 
