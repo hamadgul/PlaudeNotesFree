@@ -42,7 +42,10 @@ pip install torch torchvision torchaudio
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-To make this permanent, add it to your `~/.zshrc` or `~/.bash_profile`.
+To make this permanent:
+```bash
+echo 'export ANTHROPIC_API_KEY="sk-ant-your-key-here"' >> ~/.zshrc && source ~/.zshrc
+```
 
 **4. Set up iCloud folders**
 
