@@ -25,7 +25,7 @@ Automatically transcribes Plaud voice recordings and generates structured meetin
 
 **1. Clone and create a virtual environment**
 ```bash
-git clone <repo-url>
+git clone https://github.com/hamadgul/PlaudeNotesFree.git
 cd plaud-summarizer
 python3 -m venv .venv
 source .venv/bin/activate
