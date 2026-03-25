@@ -19,6 +19,7 @@ Usage:
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -119,6 +120,11 @@ def summarize_with_claude(transcript: str) -> dict | None:
         print("   ANTHROPIC_API_KEY contains non-ASCII characters. Re-set it.")
         return None
 
+    word_count = len(transcript.split())
+    if word_count < 20:
+        print(f"    Transcript too short ({word_count} words), skipping AI summary.")
+        return None
+
     try:
         import anthropic
     except ImportError:
@@ -128,14 +134,18 @@ def summarize_with_claude(transcript: str) -> dict | None:
     client = anthropic.Anthropic(api_key=key)
     print(f"    Summarizing with Claude ({CLAUDE_MODEL})...")
 
-    message = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=2000,
-        messages=[{
-            "role": "user",
-            "content": SUMMARY_PROMPT.format(transcript=transcript)
-        }]
-    )
+    try:
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=4096,
+            messages=[{
+                "role": "user",
+                "content": SUMMARY_PROMPT.format(transcript=transcript)
+            }]
+        )
+    except Exception as e:
+        print(f"    Claude API error: {e}")
+        return None
 
     raw = message.content[0].text.strip()
     # Strip markdown code fences Claude sometimes adds despite instructions
@@ -148,6 +158,15 @@ def summarize_with_claude(transcript: str) -> dict | None:
         print("    Summary generated")
         return data
     except json.JSONDecodeError:
+        # Try to extract a JSON object from anywhere in the response
+        match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group())
+                print("    Summary generated (extracted from response)")
+                return data
+            except json.JSONDecodeError:
+                pass
         print("    Warning: Claude did not return valid JSON. Saving raw text as tldr.")
         return {"attendees": [], "tldr": raw, "decisions": [], "action_items": [], "topics": [], "open_questions": []}
 
@@ -336,25 +355,6 @@ def setup_folders(config: dict) -> dict:
     return config
 
 
-def ask_save_location(filename: str, default_dir: Path) -> Path:
-    """Show native macOS folder picker. Returns chosen folder or default_dir on cancel."""
-    import platform
-    if platform.system() != "Darwin":
-        return default_dir
-
-    script = f'POSIX path of (choose folder with prompt "Save \\"{filename}\\" to:")'
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=60
-        )
-        chosen = result.stdout.strip()
-        if chosen:
-            return Path(chosen)
-    except Exception:
-        pass
-    return default_dir
-
 
 def process_file(audio_path: Path, model, output_dir: Path):
     """Full pipeline: audio → transcript → summary → docx."""
@@ -365,9 +365,8 @@ def process_file(audio_path: Path, model, output_dir: Path):
     transcript = transcribe_audio(audio_path, model)
     summary = summarize_with_claude(transcript)
 
-    save_dir = ask_save_location(audio_path.name, output_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    out_path = save_docx(audio_path, summary, save_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = save_docx(audio_path, summary, output_dir)
 
     if out_path:
         print(f"\n  Done!  {out_path}\n")
@@ -445,7 +444,7 @@ def main():
     config = load_config()
 
     # First run or --setup flag: prompt for folders
-    if args.setup or "input_dir" not in config:
+    if args.setup or "input_dir" not in config or "output_dir" not in config:
         config = setup_folders(config)
 
     input_dir = Path(config["input_dir"])
